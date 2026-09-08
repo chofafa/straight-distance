@@ -1,6 +1,6 @@
-# 핀 거리 (golf-pin-range)
+# Straight Distance (golf-pin-range)
 
-골프장에서 폰으로 여는 한 페이지. 위성지도 위에 내 GPS 위치가 찍히고, 지도를 **꾹 누르면** 그 자리가 핀,
+골프장(어디든)에서 폰으로 여는 한 페이지. 홈 화면에 추가하면 이름은 **Straight Distance**. 위성지도 위에 내 GPS 위치가 찍히고, 지도를 **꾹 누르면** 그 자리가 핀,
 내 위치에서 핀까지 **직선거리(m)** 를 크게 보여준다. 그게 전부다.
 
 - 주소: https://chofafa.github.io/golf-pin-range/ (GitHub Pages, `main` 브랜치 루트)
