@@ -102,12 +102,24 @@
     if(first){first=false; if(!userMoved)map.setView(ll,Math.max(map.getZoom(),18));}
     if(gpsErr){ gpsErr=false; hintEl.innerHTML=HINT; }
     update(); }
-  function onErr(e){ gpsErr=true; st.className="bad"; stText.textContent=e.code===1?"위치 권한 없음":"GPS 끊김"; if(me)distEl.classList.add("stale");
+  function onErr(e){ gpsErr=true; st.className="bad"; stText.textContent=e.code===1?"위치 권한 없음":"GPS 끊김 · 다시 잡는 중"; if(me)distEl.classList.add("stale");
+    if(e.code!==1)setTimeout(startWatch,3000);
     hintEl.innerHTML=e.code===1?"위치 권한이 꺼져 있다. iPhone: <b>설정 › 개인정보 보호 및 보안 › 위치 서비스 › Safari 웹사이트</b> 를 '앱 사용 중' + 정확한 위치로. 그 다음 이 페이지를 새로고침.":"GPS 신호가 없다. 하늘이 트인 곳에서 잠시 기다리면 잡힌다."; }
-  if(navigator.geolocation) navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
-  else { st.className="bad"; stText.textContent="GPS 미지원"; }
+  // iOS Safari 는 페이지가 백그라운드로 가면 watchPosition 을 멈추고 돌아와도 되살리지 않는다.
+  // 화면이 다시 보일 때(visibilitychange·pageshow·focus)마다 감시를 끊고 새로 건다.
+  var watchId=null, lastStart=0;
+  function startWatch(){ if(!navigator.geolocation){ st.className="bad"; stText.textContent="GPS 미지원"; return; }
+    var now=Date.now(); if(now-lastStart<1500)return; lastStart=now;
+    if(watchId!==null){ try{navigator.geolocation.clearWatch(watchId)}catch(e){} watchId=null; }
+    if(!me){ stText.textContent="GPS 대기중"; }
+    watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:0,timeout:20000}); }
+  startWatch();
+  document.addEventListener("visibilitychange",function(){ if(document.visibilityState==="visible")startWatch(); });
+  window.addEventListener("pageshow",startWatch); window.addEventListener("focus",startWatch);
   // watchPosition 은 가만히 있으면 콜백이 뜸할 수 있다 — 오래됐다고만 알리고, "끊김"은 오류 콜백에서만
-  setInterval(function(){ if(!me||gpsErr)return; var age=(Date.now()-me.t)/1000; if(age>20){ stText.textContent="GPS ±"+Math.round(me.acc)+"m · "+Math.round(age)+"초 전"; } if(age>60)distEl.classList.add("stale"); },2000);
+  setInterval(function(){ if(!me||gpsErr)return; var age=(Date.now()-me.t)/1000; if(age>20){ stText.textContent="GPS ±"+Math.round(me.acc)+"m · "+Math.round(age)+"초 전"; }
+    if(age>60)distEl.classList.add("stale");
+    if(age>30&&document.visibilityState==="visible"&&Date.now()-lastStart>30000){ startWatch(); } },2000);
   document.getElementById("bMe").onclick=function(){ if(me)map.setView(me.ll,Math.max(map.getZoom(),18)); else toast("아직 GPS 위치가 없다"); };
 
   function update(){ if(!gpsErr)distEl.classList.remove("stale");
@@ -119,6 +131,7 @@
   // 라운드 중 화면 안 꺼지게 (지원 브라우저만)
   function wake(){ if(navigator.wakeLock&&navigator.wakeLock.request)navigator.wakeLock.request("screen").catch(function(){}); }
   document.addEventListener("visibilitychange",function(){ if(document.visibilityState==="visible")wake(); }); wake();
+  window.addEventListener("pageshow",wake);
   var saved=load("pin"); if(saved&&isFinite(saved[0])&&isFinite(saved[1])) setPin(L.latLng(saved[0],saved[1])); else update();
 })();
 </script>
