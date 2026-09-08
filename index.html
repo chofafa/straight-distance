@@ -23,6 +23,8 @@
   /* 위 상태 */
   #status{position:fixed;top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:12px;color:var(--mute);white-space:nowrap;z-index:1000}
   #status b{width:8px;height:8px;border-radius:50%;background:var(--warn)}
+  #bMode{position:fixed;top:max(10px,env(safe-area-inset-top));left:max(10px,env(safe-area-inset-left));z-index:1000;min-height:34px;padding:0 12px;border-radius:999px;background:var(--panel);font-size:13px}
+  .leaflet-shade-pane{mix-blend-mode:multiply}
   #status.ok b{background:var(--ok)} #status.bad b{background:var(--pin)}
   /* 아래 */
   #sheet{position:fixed;left:0;right:0;bottom:0;z-index:1000;padding:8px max(14px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));background:var(--panel);border-top:1px solid var(--line);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:grid;gap:8px}
@@ -58,6 +60,7 @@
 <body>
 <div id="map" aria-label="지도"></div>
 <div id="status"><b></b><span id="stText">GPS 대기중</span></div>
+<button id="bMode" aria-label="지도 종류 전환">지형</button>
 <div id="sheet">
   <div id="read">
     <div id="total" class="idle">꾹 눌러 핀</div>
@@ -80,7 +83,16 @@
 
   var st=document.getElementById("status"), stText=document.getElementById("stText"), totalEl=document.getElementById("total"), chainEl=document.getElementById("chain");
   var map=L.map("map",{zoomControl:false,attributionControl:true,tapHold:false,maxZoom:21,minZoom:14,zoomSnap:0.25,inertia:true});
-  L.tileLayer("https://xdworld.vworld.kr/2d/Satellite/service/{z}/{x}/{y}.jpeg",{maxNativeZoom:19,maxZoom:21,attribution:"위성사진 VWorld · 국토지리정보원"}).addTo(map);
+  // 지도 두 종류: 위성 / 지형(일반지도의 건물·지명 라벨 + Esri 음영기복을 곱하기 블렌드로 얹음 — 네이버 지형도 느낌)
+  map.createPane("shade"); map.getPane("shade").style.zIndex=250;
+  var satL=L.tileLayer("https://xdworld.vworld.kr/2d/Satellite/service/{z}/{x}/{y}.jpeg",{maxNativeZoom:19,maxZoom:21,attribution:"VWorld · 국토지리정보원"});
+  var terrL=L.layerGroup([
+    L.tileLayer("https://xdworld.vworld.kr/2d/Base/service/{z}/{x}/{y}.png",{maxNativeZoom:19,maxZoom:21,attribution:"VWorld · 국토지리정보원 · 음영 Esri"}),
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}",{maxNativeZoom:16,maxZoom:21,opacity:.6,pane:"shade"})]);
+  var mode=load("mode")==="terr"?"terr":"sat", bMode=document.getElementById("bMode");
+  function applyMode(){ if(mode==="terr"){ map.removeLayer(satL); terrL.addTo(map); bMode.textContent="위성"; } else { map.removeLayer(terrL); satL.addTo(map); bMode.textContent="지형"; } save("mode",mode); }
+  bMode.onclick=function(){ mode=mode==="terr"?"sat":"terr"; applyMode(); };
+  applyMode();
   var view=load("view"), okView=view&&Array.isArray(view.c)&&Number.isFinite(view.c[0])&&Number.isFinite(view.c[1])&&Number.isFinite(view.z);
   map.setView(okView?view.c:HOME, okView?Math.min(21,Math.max(14,view.z)):16);
   map.on("moveend",function(){ var c=map.getCenter(); save("view",{c:[c.lat,c.lng],z:map.getZoom()}); });
