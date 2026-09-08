@@ -1,9 +1,9 @@
-# Straight Distance (golf-pin-range)
+# Straight Distance
 
 골프장(어디든)에서 폰으로 여는 한 페이지. 홈 화면에 추가하면 이름은 **Straight Distance**. 위성지도 위에 내 GPS 위치가 찍히고, 지도를 **꾹 누르면** 그 자리가 핀,
 내 위치에서 핀까지 **직선거리(m)** 를 크게 보여준다. 그게 전부다.
 
-- 주소: https://chofafa.github.io/golf-pin-range/ (GitHub Pages, `main` 브랜치 루트)
+- 주소: https://chofafa.github.io/straight-distance/ (GitHub Pages, `main` 브랜치 루트)
 - 지도: VWorld(국토지리정보원) 위성 타일 `https://xdworld.vworld.kr/2d/Satellite/service/{z}/{x}/{y}.jpeg` — z19(0.24m/px)까지 원본, 그 위는 확대. 키 없이 받아진다(개인 용도)
 - 지도 엔진: Leaflet 1.9.4 (cdnjs)
 - 저장: 마지막 핀·화면 위치를 그 폰의 localStorage 에
