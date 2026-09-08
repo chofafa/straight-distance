@@ -82,7 +82,8 @@
       segsEl=document.getElementById("segs"), pinsEl=document.getElementById("pins");
   var map=L.map("map",{zoomControl:false,attributionControl:true,tapHold:false,maxZoom:21,minZoom:14,zoomSnap:0.25,inertia:true});
   L.tileLayer("https://xdworld.vworld.kr/2d/Satellite/service/{z}/{x}/{y}.jpeg",{maxNativeZoom:19,maxZoom:21,attribution:"위성사진 VWorld · 국토지리정보원"}).addTo(map);
-  var view=load("view"); map.setView(view&&view.c?view.c:HOME, view&&view.z?view.z:16);
+  var view=load("view"), okView=view&&Array.isArray(view.c)&&Number.isFinite(view.c[0])&&Number.isFinite(view.c[1])&&Number.isFinite(view.z);
+  map.setView(okView?view.c:HOME, okView?Math.min(21,Math.max(14,view.z)):16);
   map.on("moveend",function(){ var c=map.getCenter(); save("view",{c:[c.lat,c.lng],z:map.getZoom()}); });
 
   // ── 핀 (최대 6개, 순서가 곧 번호) ──
@@ -93,8 +94,12 @@
     markers.forEach(function(m){map.removeLayer(m)}); lines.forEach(function(l){map.removeLayer(l)}); labels.forEach(function(l){map.removeLayer(l)});
     markers=[]; lines=[]; labels=[];
     pins.forEach(function(ll,i){
-      var m=L.marker(ll,{icon:pinIcon(i+1),zIndexOffset:100+i}).addTo(map);
-      m.on("click",function(e){ var tg=e.originalEvent&&e.originalEvent.target; if(tg&&tg.getAttribute&&tg.getAttribute("data-x")){ removePin(i); } });
+      var m=L.marker(ll,{icon:pinIcon(i+1),zIndexOffset:100+i,keyboard:false}).addTo(map);
+      var xe=m.getElement()&&m.getElement().querySelector(".x");
+      if(xe){ // 시작 이벤트를 지도에 안 보낸다 — 손가락이 3px 만 밀려도 Leaflet 이 드래그로 잡고 click 을 삼킨다
+        L.DomEvent.on(xe,"touchstart mousedown pointerdown",L.DomEvent.stop);
+        L.DomEvent.on(xe,"touchend",function(ev){ L.DomEvent.stop(ev); removePin(i); });   // preventDefault 로 뒤따르는 click 도 막힌다
+        L.DomEvent.on(xe,"click",function(ev){ L.DomEvent.stop(ev); removePin(i); }); }
       markers.push(m);
       if(i>0){ var a=pins[i-1], d=a.distanceTo(ll);
         lines.push(L.polyline([a,ll],{color:"#E8412F",weight:1,opacity:.95,dashArray:"4 4",lineCap:"butt",interactive:false}).addTo(map));
@@ -116,7 +121,7 @@
 
   // 롱프레스: 550ms, 8px 이내, 손가락 하나. 지도 드래그·줌이 시작되면 취소
   var el=map.getContainer(), press=null, userMoved=false;
-  el.addEventListener("pointerdown",function(e){ if(!e.isPrimary){cancel();return;} var tg=e.target; if(tg&&tg.getAttribute&&tg.getAttribute("data-x"))return;
+  el.addEventListener("pointerdown",function(e){ if(!e.isPrimary){cancel();return;}
     press={x:e.clientX,y:e.clientY,t:setTimeout(function(){ if(!press)return; var p=map.mouseEventToContainerPoint({clientX:press.x,clientY:press.y}); press=null; addPin(map.containerPointToLatLng(p)); },550)}; });
   el.addEventListener("pointermove",function(e){ if(press&&Math.hypot(e.clientX-press.x,e.clientY-press.y)>8)cancel(); });
   el.addEventListener("pointerup",cancel); el.addEventListener("pointercancel",cancel);
@@ -153,7 +158,7 @@
   wake();
 
   // 저장된 핀 복원 (마지막에 — 위 DOM·함수가 다 준비된 뒤)
-  var saved=load("pins"); if(Array.isArray(saved)) pins=saved.filter(function(p){return Array.isArray(p)&&isFinite(p[0])&&isFinite(p[1])}).slice(0,MAX).map(function(p){return L.latLng(p[0],p[1])});
+  var saved=load("pins"); if(Array.isArray(saved)) pins=saved.filter(function(p){return Array.isArray(p)&&Number.isFinite(p[0])&&Number.isFinite(p[1])&&Math.abs(p[0])<=90&&Math.abs(p[1])<=180}).slice(0,MAX).map(function(p){return L.latLng(p[0],p[1])});
   render();
 })();
 </script>
