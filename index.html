@@ -73,7 +73,9 @@
   map.on("moveend",function(){ var c=map.getCenter(); save("view",{c:[c.lat,c.lng],z:map.getZoom()}); });
 
   // ── 핀: 꾹 누르기 ──
-  var pin=null, pinM=null;
+  var pin=null, pinM=null, lineL=null;
+  function drawLine(){ if(me&&pin){ var pts=[me.ll,pin]; if(lineL)lineL.setLatLngs(pts); else lineL=L.polyline(pts,{color:"#E8412F",weight:1,opacity:.95,dashArray:"4 4",lineCap:"butt",interactive:false}).addTo(map); }
+    else if(lineL){ map.removeLayer(lineL); lineL=null; } }
   var flagIcon=L.divIcon({className:"",html:'<div class="flag"><i></i><b></b><s></s></div>',iconSize:[34,40],iconAnchor:[17,40]});
   function setPin(ll){ pin=ll; if(pinM)pinM.setLatLng(ll); else pinM=L.marker(ll,{icon:flagIcon,interactive:false}).addTo(map);
     save("pin",[ll.lat,ll.lng]); update(); }
@@ -118,7 +120,7 @@
     if(age>30&&document.visibilityState==="visible"&&Date.now()-lastStart>30000){ startWatch(); } },2000);
   document.getElementById("bMe").onclick=function(){ if(me)map.setView(me.ll,Math.max(map.getZoom(),18)); else toast("아직 GPS 위치가 없다"); };
 
-  function update(){ if(!gpsErr)distEl.classList.remove("stale");
+  function update(){ drawLine(); if(!gpsErr)distEl.classList.remove("stale");
     if(gpsErr&&!me)return;
     if(!pin){ distEl.className="idle"; distEl.textContent="꾹 눌러 핀"; return; }
     if(!me){ distEl.className="idle"; distEl.textContent="GPS 잡는 중…"; return; }
