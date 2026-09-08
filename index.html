@@ -20,13 +20,13 @@
   .leaflet-control-attribution a{color:var(--mute)!important}
   .leaflet-control-zoom{display:none}
   /* 위 상태 */
-  #status{position:fixed;top:max(10px,env(safe-area-inset-top));right:10px;display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:12px;color:var(--mute);white-space:nowrap;z-index:1000}
+  #status{position:fixed;top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:12px;color:var(--mute);white-space:nowrap;z-index:1000}
   #status b{width:8px;height:8px;border-radius:50%;background:var(--warn)}
   #status.ok b{background:var(--ok)} #status.bad b{background:var(--pin)}
   /* 아래 */
-  #sheet{position:fixed;left:0;right:0;bottom:0;z-index:1000;padding:10px 14px max(12px,env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+  #sheet{position:fixed;left:0;right:0;bottom:0;z-index:1000;padding:10px max(14px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));background:var(--panel);border-top:1px solid var(--line);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
   #read{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
-  #dist{font:700 clamp(72px,26vw,120px)/0.9 var(--num);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  #dist{flex:1 1 auto;min-width:0;font:700 clamp(72px,26vw,120px)/0.9 var(--num);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
   #dist small{font-size:.36em;color:var(--mute);margin-left:4px}
   #dist.idle{font:600 clamp(18px,5vw,22px)/1.3 var(--ui);color:var(--mute);padding-bottom:6px}
   #dist.stale{opacity:.45}
@@ -68,6 +68,8 @@
   function load(k){try{var v=localStorage.getItem(k);return v?JSON.parse(v):null}catch(e){return null}}
   function save(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}
 
+  var st=document.getElementById("status"), stText=document.getElementById("stText"), distEl=document.getElementById("dist"), hintEl=document.getElementById("hint");
+  var HINT=hintEl.innerHTML;
   var map=L.map("map",{zoomControl:false,attributionControl:true,tapHold:false,maxZoom:21,minZoom:14,zoomSnap:0.25,inertia:true});
   // VWorld(국토지리정보원) 위성. z19 까지 원본, 그 위는 확대.
   L.tileLayer("https://xdworld.vworld.kr/2d/Satellite/service/{z}/{x}/{y}.jpeg",{maxNativeZoom:19,maxZoom:21,attribution:"위성사진 VWorld · 국토지리정보원"}).addTo(map);
@@ -79,34 +81,36 @@
   var flagIcon=L.divIcon({className:"",html:'<div class="flag"><i></i><b></b><s></s></div>',iconSize:[34,40],iconAnchor:[17,40]});
   function setPin(ll){ pin=ll; if(pinM)pinM.setLatLng(ll); else pinM=L.marker(ll,{icon:flagIcon,interactive:false}).addTo(map);
     save("pin",[ll.lat,ll.lng]); update(); }
-  var saved=load("pin"); if(saved&&isFinite(saved[0])&&isFinite(saved[1])) setPin(L.latLng(saved[0],saved[1]));
   // 자체 롱프레스: 550ms, 8px 이내, 손가락 하나
   var el=map.getContainer(), press=null;
   el.addEventListener("pointerdown",function(e){ if(!e.isPrimary){cancel();return;} press={x:e.clientX,y:e.clientY,t:setTimeout(function(){ if(!press)return; var p=map.mouseEventToContainerPoint({clientX:press.x,clientY:press.y}); setPin(map.containerPointToLatLng(p)); if(navigator.vibrate)navigator.vibrate(30); toast("핀 놓음"); press=null; },550)}; });
   el.addEventListener("pointermove",function(e){ if(press&&Math.hypot(e.clientX-press.x,e.clientY-press.y)>8)cancel(); });
   el.addEventListener("pointerup",cancel); el.addEventListener("pointercancel",cancel);
   function cancel(){ if(press){clearTimeout(press.t);press=null;} }
+  var userMoved=false;
+  map.on("dragstart zoomstart",function(){ cancel(); userMoved=true; });
   el.addEventListener("contextmenu",function(e){e.preventDefault();});
   document.getElementById("bClear").onclick=function(){ pin=null; if(pinM){map.removeLayer(pinM);pinM=null;} try{localStorage.removeItem("pin")}catch(e){} update(); toast("핀 지움"); };
 
   // ── GPS ──
-  var me=null, meM=null, accC=null, first=true;
-  var st=document.getElementById("status"), stText=document.getElementById("stText"), distEl=document.getElementById("dist");
+  var me=null, meM=null, accC=null, first=true, gpsErr=false;
   var meIcon=L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[18,18],iconAnchor:[9,9]});
   function onPos(p){ var c=p.coords, ll=L.latLng(c.latitude,c.longitude), acc=c.accuracy||0;
     me={ll:ll,acc:acc,t:Date.now()};
     if(meM){meM.setLatLng(ll);accC.setLatLng(ll).setRadius(acc);} else { accC=L.circle(ll,{radius:acc,color:"#3B8BFF",weight:1,opacity:.6,fillColor:"#3B8BFF",fillOpacity:.15,interactive:false}).addTo(map); meM=L.marker(ll,{icon:meIcon,interactive:false,zIndexOffset:500}).addTo(map); }
     st.className=acc<=8?"ok":""; stText.textContent="GPS ±"+Math.round(acc)+"m";
-    if(first){first=false; map.setView(ll,Math.max(map.getZoom(),18));}
+    if(first){first=false; if(!userMoved)map.setView(ll,Math.max(map.getZoom(),18));}
+    if(gpsErr){ gpsErr=false; hintEl.innerHTML=HINT; }
     update(); }
-  function onErr(e){ st.className="bad"; stText.textContent=e.code===1?"위치 권한 없음":"GPS 실패";
-    document.getElementById("hint").innerHTML=e.code===1?"위치 권한이 꺼져 있다. iPhone: <b>설정 › 개인정보 보호 및 보안 › 위치 서비스 › Safari 웹사이트</b> 를 '앱 사용 중' + 정확한 위치로. 그 다음 이 페이지를 새로고침.":"GPS 신호가 없다. 하늘이 트인 곳에서 잠시 기다리면 잡힌다."; }
+  function onErr(e){ gpsErr=true; st.className="bad"; stText.textContent=e.code===1?"위치 권한 없음":"GPS 끊김"; if(me)distEl.classList.add("stale");
+    hintEl.innerHTML=e.code===1?"위치 권한이 꺼져 있다. iPhone: <b>설정 › 개인정보 보호 및 보안 › 위치 서비스 › Safari 웹사이트</b> 를 '앱 사용 중' + 정확한 위치로. 그 다음 이 페이지를 새로고침.":"GPS 신호가 없다. 하늘이 트인 곳에서 잠시 기다리면 잡힌다."; }
   if(navigator.geolocation) navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
   else { st.className="bad"; stText.textContent="GPS 미지원"; }
-  setInterval(function(){ if(!me)return; var age=(Date.now()-me.t)/1000; if(age>15){ st.className=""; stText.textContent="GPS 끊김 · "+Math.round(age)+"초 전"; distEl.classList.add("stale"); } },2000);
+  // watchPosition 은 가만히 있으면 콜백이 뜸할 수 있다 — 오래됐다고만 알리고, "끊김"은 오류 콜백에서만
+  setInterval(function(){ if(!me||gpsErr)return; var age=(Date.now()-me.t)/1000; if(age>20){ stText.textContent="GPS ±"+Math.round(me.acc)+"m · "+Math.round(age)+"초 전"; } if(age>60)distEl.classList.add("stale"); },2000);
   document.getElementById("bMe").onclick=function(){ if(me)map.setView(me.ll,Math.max(map.getZoom(),18)); else toast("아직 GPS 위치가 없다"); };
 
-  function update(){ distEl.classList.remove("stale");
+  function update(){ if(!gpsErr)distEl.classList.remove("stale");
     if(!pin){ distEl.className="idle"; distEl.textContent="지도를 꾹 눌러 핀을 놓으세요"; return; }
     if(!me){ distEl.className="idle"; distEl.textContent="핀 놓음 · GPS 잡는 중…"; return; }
     distEl.className=""; distEl.innerHTML=Math.round(me.ll.distanceTo(pin))+"<small>m</small>"; }
@@ -115,7 +119,7 @@
   // 라운드 중 화면 안 꺼지게 (지원 브라우저만)
   function wake(){ if(navigator.wakeLock&&navigator.wakeLock.request)navigator.wakeLock.request("screen").catch(function(){}); }
   document.addEventListener("visibilitychange",function(){ if(document.visibilityState==="visible")wake(); }); wake();
-  update();
+  var saved=load("pin"); if(saved&&isFinite(saved[0])&&isFinite(saved[1])) setPin(L.latLng(saved[0],saved[1])); else update();
 })();
 </script>
 </body>
