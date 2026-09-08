@@ -26,20 +26,21 @@
   #status.ok b{background:var(--ok)} #status.bad b{background:var(--pin)}
   /* 아래 */
   #sheet{position:fixed;left:0;right:0;bottom:0;z-index:1000;padding:8px max(14px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));background:var(--panel);border-top:1px solid var(--line);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:grid;gap:8px}
-  #read{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
-  #dist{flex:1 1 auto;min-width:0;font:700 clamp(72px,26vw,120px)/0.9 var(--num);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
-  #dist small{font-size:.36em;color:var(--mute);margin-left:4px}
-  #dist.idle{font:600 clamp(18px,5vw,22px)/1.3 var(--ui);color:var(--mute);padding-bottom:6px}
-  #side{display:grid;gap:6px;justify-items:end;padding-bottom:6px}
-  button{font:600 14px var(--ui);color:var(--ink);background:rgba(243,245,240,.1);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-height:44px;cursor:pointer}
+  #read{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  #total{flex:1 1 auto;min-width:0;font:700 30px/1.1 var(--num);letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
+  #total small{font:600 14px var(--ui);color:var(--mute);margin-right:6px}
+  #total.idle{font:600 16px/1.3 var(--ui);color:var(--mute)}
+  #side{display:flex;gap:6px;flex:0 0 auto}
+  button{font:600 13px var(--ui);color:var(--ink);background:rgba(243,245,240,.1);border:1px solid var(--line);border-radius:10px;padding:0 12px;min-height:38px;cursor:pointer;white-space:nowrap}
   button:focus-visible{outline:2px solid var(--gps);outline-offset:2px}
-  #segs{font:600 13px var(--ui);color:var(--mute);font-variant-numeric:tabular-nums;min-height:0;line-height:1.4}
-  #segs:empty{display:none}
-  #segs b{color:var(--ink)}
-  #pins{display:flex;gap:8px;flex-wrap:wrap}
-  #pins:empty{display:none}
-  .pchip{min-width:48px;height:40px;padding:0 12px;border-radius:12px;background:var(--pin);border-color:var(--pin);color:#fff;font:700 18px var(--num);display:inline-flex;align-items:center;gap:6px}
-  .pchip s{text-decoration:none;font:600 12px var(--ui);opacity:.85}
+  /* 체인: (1)—23m—(2)—98m—(3). 칩은 고정폭, 구간은 남는 폭을 똑같이 나눈다 — 6개까지 한 줄 */
+  #chain{display:flex;align-items:center;width:100%;min-height:40px}
+  #chain:empty{display:none}
+  .node{flex:0 0 34px;width:34px;height:34px;border-radius:50%;background:var(--pin);border:2px solid #fff;color:#fff;font:700 17px/30px var(--num);text-align:center;padding:0;min-height:0;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .seg{flex:1 1 0;min-width:0;position:relative;text-align:center;font:600 13px var(--ui);color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden}
+  .seg:before{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px dashed rgba(232,65,47,.9)}
+  .seg span{position:relative;background:var(--panel);padding:0 3px}
+  @media (max-width:360px){.node{flex-basis:30px;width:30px;height:30px;font-size:15px;line-height:26px}.seg{font-size:12px}}
   /* 마커 */
   .me{width:18px;height:18px;border-radius:50%;background:var(--gps);border:3px solid #fff;box-shadow:0 0 0 2px rgba(59,139,255,.5),0 1px 4px rgba(0,0,0,.5)}
   .pinw{position:relative;width:48px;height:66px}
@@ -59,14 +60,13 @@
 <div id="status"><b></b><span id="stText">GPS 대기중</span></div>
 <div id="sheet">
   <div id="read">
-    <div id="dist" class="idle">꾹 눌러 핀</div>
+    <div id="total" class="idle">꾹 눌러 핀</div>
     <div id="side">
       <button id="bMe">내 위치</button>
       <button id="bClear">모두 지우기</button>
     </div>
   </div>
-  <div id="segs"></div>
-  <div id="pins" aria-label="핀 목록 (누르면 삭제)"></div>
+  <div id="chain" aria-label="핀 사이 거리 (번호를 누르면 그 핀 삭제)"></div>
 </div>
 <div id="toast"></div>
 
@@ -78,8 +78,7 @@
   function load(k){try{var v=localStorage.getItem(k);return v?JSON.parse(v):null}catch(e){return null}}
   function save(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}
 
-  var st=document.getElementById("status"), stText=document.getElementById("stText"), distEl=document.getElementById("dist"),
-      segsEl=document.getElementById("segs"), pinsEl=document.getElementById("pins");
+  var st=document.getElementById("status"), stText=document.getElementById("stText"), totalEl=document.getElementById("total"), chainEl=document.getElementById("chain");
   var map=L.map("map",{zoomControl:false,attributionControl:true,tapHold:false,maxZoom:21,minZoom:14,zoomSnap:0.25,inertia:true});
   L.tileLayer("https://xdworld.vworld.kr/2d/Satellite/service/{z}/{x}/{y}.jpeg",{maxNativeZoom:19,maxZoom:21,attribution:"위성사진 VWorld · 국토지리정보원"}).addTo(map);
   var view=load("view"), okView=view&&Array.isArray(view.c)&&Number.isFinite(view.c[0])&&Number.isFinite(view.c[1])&&Number.isFinite(view.z);
@@ -106,13 +105,14 @@
         var mid=L.latLng((a.lat+ll.lat)/2,(a.lng+ll.lng)/2);
         labels.push(L.tooltip({permanent:true,direction:"center",className:"seglabel",interactive:false,opacity:1}).setLatLng(mid).setContent(Math.round(d)+"m").addTo(map)); }
     });
-    // 하단: 큰 숫자 = 마지막 두 핀 사이. 3개 이상이면 구간·합계를 작게
-    pinsEl.innerHTML="";
-    pins.forEach(function(_,i){ var b=document.createElement("button"); b.className="pchip"; b.innerHTML=(i+1)+'<s>×</s>'; b.setAttribute("aria-label","핀 "+(i+1)+" 지우기"); b.onclick=function(){removePin(i)}; pinsEl.appendChild(b); });
-    if(pins.length<2){ distEl.className="idle"; distEl.textContent=pins.length===0?"꾹 눌러 핀":"핀 1 · 하나 더 꾹"; segsEl.textContent=""; }
-    else { var last=pins[pins.length-2].distanceTo(pins[pins.length-1]); distEl.className=""; distEl.innerHTML=Math.round(last)+"<small>m · "+(pins.length-1)+"→"+pins.length+"</small>";
-      if(pins.length>2){ var parts=[], tot=0; for(var i=1;i<pins.length;i++){ var d=pins[i-1].distanceTo(pins[i]); tot+=d; parts.push(i+"→"+(i+1)+" <b>"+Math.round(d)+"</b>"); } segsEl.innerHTML=parts.join(" · ")+" · 합 <b>"+Math.round(tot)+"m</b>"; }
-      else segsEl.textContent=""; }
+    // 하단: 총 거리 한 줄 + (1)—23m—(2)—98m—(3) 체인. 번호를 누르면 그 핀 삭제
+    chainEl.innerHTML=""; var tot=0;
+    pins.forEach(function(_,i){
+      if(i>0){ var d=pins[i-1].distanceTo(pins[i]); tot+=d; var s=document.createElement("div"); s.className="seg"; s.innerHTML="<span>"+Math.round(d)+"m</span>"; chainEl.appendChild(s); }
+      var b=document.createElement("button"); b.className="node"; b.textContent=i+1; b.setAttribute("aria-label","핀 "+(i+1)+" 지우기"); b.onclick=function(){removePin(i)}; chainEl.appendChild(b); });
+    if(pins.length===0){ totalEl.className="idle"; totalEl.textContent="꾹 눌러 핀"; }
+    else if(pins.length===1){ totalEl.className="idle"; totalEl.textContent="하나 더 꾹 누르면 거리"; }
+    else { totalEl.className=""; totalEl.innerHTML="<small>총</small>"+Math.round(tot)+"m"; }
     save("pins",pins.map(function(p){return [p.lat,p.lng]}));
   }
   function addPin(ll){ if(pins.length>=MAX){ toast("핀은 "+MAX+"개까지 — 하나 지우고"); return; } pins.push(ll); render(); if(navigator.vibrate)navigator.vibrate(30); }
