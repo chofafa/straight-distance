@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0E1411">
+<title>핀 거리</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Noto+Sans+KR:wght@400;600&display=swap">
+<style>
+  :root{--ink:#F3F5F0;--mute:#9AA79C;--panel:rgba(14,20,17,.92);--line:rgba(243,245,240,.14);--pin:#E8412F;--gps:#3B8BFF;--ok:#4ADE80;--warn:#F5B331;
+    --num:"Barlow Condensed","Arial Narrow",sans-serif;--ui:"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif}
+  html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none;background:#0E1411}
+  body{color:var(--ink);font-family:var(--ui);-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+  #map{position:fixed;inset:0;background:#0E1411}
+  .leaflet-container{font-family:var(--ui)}
+  .leaflet-control-attribution{background:rgba(14,20,17,.6)!important;color:var(--mute)!important;font-size:10px}
+  .leaflet-control-attribution a{color:var(--mute)!important}
+  .leaflet-control-zoom{display:none}
+  /* 위 상태 */
+  #status{position:fixed;top:max(10px,env(safe-area-inset-top));right:10px;display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:12px;color:var(--mute);white-space:nowrap;z-index:1000}
+  #status b{width:8px;height:8px;border-radius:50%;background:var(--warn)}
+  #status.ok b{background:var(--ok)} #status.bad b{background:var(--pin)}
+  /* 아래 */
+  #sheet{position:fixed;left:0;right:0;bottom:0;z-index:1000;padding:10px 14px max(12px,env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+  #read{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+  #dist{font:700 clamp(72px,26vw,120px)/0.9 var(--num);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  #dist small{font-size:.36em;color:var(--mute);margin-left:4px}
+  #dist.idle{font:600 clamp(18px,5vw,22px)/1.3 var(--ui);color:var(--mute);padding-bottom:6px}
+  #dist.stale{opacity:.45}
+  #side{display:grid;gap:6px;justify-items:end;padding-bottom:6px}
+  button{font:600 14px var(--ui);color:var(--ink);background:rgba(243,245,240,.1);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-height:44px;cursor:pointer}
+  button:focus-visible{outline:2px solid var(--gps);outline-offset:2px}
+  #hint{font-size:12px;color:var(--mute);margin-top:8px;line-height:1.5}
+  #hint b{color:var(--ink);font-weight:600}
+  /* 마커 */
+  .me{width:18px;height:18px;border-radius:50%;background:var(--gps);border:3px solid #fff;box-shadow:0 0 0 2px rgba(59,139,255,.5),0 1px 4px rgba(0,0,0,.5)}
+  .flag{position:relative;width:34px;height:40px}
+  .flag i{position:absolute;left:15px;bottom:0;width:3px;height:36px;background:#fff;border-radius:2px;box-shadow:0 0 2px rgba(0,0,0,.6)}
+  .flag b{position:absolute;left:18px;top:2px;width:0;height:0;border-top:9px solid transparent;border-bottom:9px solid transparent;border-left:16px solid var(--pin);filter:drop-shadow(0 1px 1px rgba(0,0,0,.6))}
+  .flag s{position:absolute;left:12px;bottom:-4px;width:9px;height:9px;border-radius:50%;background:var(--pin);border:2px solid #fff}
+  #toast{position:fixed;left:50%;top:calc(max(10px,env(safe-area-inset-top)) + 48px);transform:translateX(-50%);z-index:1001;background:var(--ink);color:#0E1411;font-weight:600;padding:8px 14px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
+  #toast.show{opacity:1}
+  @media (prefers-reduced-motion:reduce){#toast{transition:none}}
+</style>
+</head>
+<body>
+<div id="map" aria-label="지도"></div>
+<div id="status"><b></b><span id="stText">GPS 대기중</span></div>
+<div id="sheet">
+  <div id="read">
+    <div id="dist" class="idle">지도를 꾹 눌러 핀을 놓으세요</div>
+    <div id="side">
+      <button id="bMe">내 위치</button>
+      <button id="bClear">핀 지우기</button>
+    </div>
+  </div>
+  <div id="hint"><b>꾹 누르면</b> 그 자리가 핀. 숫자는 내 GPS 위치에서 핀까지 <b>직선거리(m)</b>.</div>
+</div>
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function(){
+  var HOME=[37.7688,127.7199]; // 베어크리크 춘천 클럽하우스 — GPS 가 잡히기 전 기본 화면
+  function load(k){try{var v=localStorage.getItem(k);return v?JSON.parse(v):null}catch(e){return null}}
+  function save(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}
+
+  var map=L.map("map",{zoomControl:false,attributionControl:true,tapHold:false,maxZoom:21,minZoom:14,zoomSnap:0.25,inertia:true});
+  // VWorld(국토지리정보원) 위성. z19 까지 원본, 그 위는 확대.
+  L.tileLayer("https://xdworld.vworld.kr/2d/Satellite/service/{z}/{x}/{y}.jpeg",{maxNativeZoom:19,maxZoom:21,attribution:"위성사진 VWorld · 국토지리정보원"}).addTo(map);
+  var view=load("view"); map.setView(view&&view.c?view.c:HOME, view&&view.z?view.z:16);
+  map.on("moveend",function(){ var c=map.getCenter(); save("view",{c:[c.lat,c.lng],z:map.getZoom()}); });
+
+  // ── 핀: 꾹 누르기 ──
+  var pin=null, pinM=null;
+  var flagIcon=L.divIcon({className:"",html:'<div class="flag"><i></i><b></b><s></s></div>',iconSize:[34,40],iconAnchor:[17,40]});
+  function setPin(ll){ pin=ll; if(pinM)pinM.setLatLng(ll); else pinM=L.marker(ll,{icon:flagIcon,interactive:false}).addTo(map);
+    save("pin",[ll.lat,ll.lng]); update(); }
+  var saved=load("pin"); if(saved&&isFinite(saved[0])&&isFinite(saved[1])) setPin(L.latLng(saved[0],saved[1]));
+  // 자체 롱프레스: 550ms, 8px 이내, 손가락 하나
+  var el=map.getContainer(), press=null;
+  el.addEventListener("pointerdown",function(e){ if(!e.isPrimary){cancel();return;} press={x:e.clientX,y:e.clientY,t:setTimeout(function(){ if(!press)return; var p=map.mouseEventToContainerPoint({clientX:press.x,clientY:press.y}); setPin(map.containerPointToLatLng(p)); if(navigator.vibrate)navigator.vibrate(30); toast("핀 놓음"); press=null; },550)}; });
+  el.addEventListener("pointermove",function(e){ if(press&&Math.hypot(e.clientX-press.x,e.clientY-press.y)>8)cancel(); });
+  el.addEventListener("pointerup",cancel); el.addEventListener("pointercancel",cancel);
+  function cancel(){ if(press){clearTimeout(press.t);press=null;} }
+  el.addEventListener("contextmenu",function(e){e.preventDefault();});
+  document.getElementById("bClear").onclick=function(){ pin=null; if(pinM){map.removeLayer(pinM);pinM=null;} try{localStorage.removeItem("pin")}catch(e){} update(); toast("핀 지움"); };
+
+  // ── GPS ──
+  var me=null, meM=null, accC=null, first=true;
+  var st=document.getElementById("status"), stText=document.getElementById("stText"), distEl=document.getElementById("dist");
+  var meIcon=L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[18,18],iconAnchor:[9,9]});
+  function onPos(p){ var c=p.coords, ll=L.latLng(c.latitude,c.longitude), acc=c.accuracy||0;
+    me={ll:ll,acc:acc,t:Date.now()};
+    if(meM){meM.setLatLng(ll);accC.setLatLng(ll).setRadius(acc);} else { accC=L.circle(ll,{radius:acc,color:"#3B8BFF",weight:1,opacity:.6,fillColor:"#3B8BFF",fillOpacity:.15,interactive:false}).addTo(map); meM=L.marker(ll,{icon:meIcon,interactive:false,zIndexOffset:500}).addTo(map); }
+    st.className=acc<=8?"ok":""; stText.textContent="GPS ±"+Math.round(acc)+"m";
+    if(first){first=false; map.setView(ll,Math.max(map.getZoom(),18));}
+    update(); }
+  function onErr(e){ st.className="bad"; stText.textContent=e.code===1?"위치 권한 없음":"GPS 실패";
+    document.getElementById("hint").innerHTML=e.code===1?"위치 권한이 꺼져 있다. iPhone: <b>설정 › 개인정보 보호 및 보안 › 위치 서비스 › Safari 웹사이트</b> 를 '앱 사용 중' + 정확한 위치로. 그 다음 이 페이지를 새로고침.":"GPS 신호가 없다. 하늘이 트인 곳에서 잠시 기다리면 잡힌다."; }
+  if(navigator.geolocation) navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
+  else { st.className="bad"; stText.textContent="GPS 미지원"; }
+  setInterval(function(){ if(!me)return; var age=(Date.now()-me.t)/1000; if(age>15){ st.className=""; stText.textContent="GPS 끊김 · "+Math.round(age)+"초 전"; distEl.classList.add("stale"); } },2000);
+  document.getElementById("bMe").onclick=function(){ if(me)map.setView(me.ll,Math.max(map.getZoom(),18)); else toast("아직 GPS 위치가 없다"); };
+
+  function update(){ distEl.classList.remove("stale");
+    if(!pin){ distEl.className="idle"; distEl.textContent="지도를 꾹 눌러 핀을 놓으세요"; return; }
+    if(!me){ distEl.className="idle"; distEl.textContent="핀 놓음 · GPS 잡는 중…"; return; }
+    distEl.className=""; distEl.innerHTML=Math.round(me.ll.distanceTo(pin))+"<small>m</small>"; }
+  var toastEl=document.getElementById("toast"),toastT;
+  function toast(s){ toastEl.textContent=s; toastEl.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(function(){toastEl.classList.remove("show")},1400); }
+  // 라운드 중 화면 안 꺼지게 (지원 브라우저만)
+  function wake(){ if(navigator.wakeLock&&navigator.wakeLock.request)navigator.wakeLock.request("screen").catch(function(){}); }
+  document.addEventListener("visibilitychange",function(){ if(document.visibilityState==="visible")wake(); }); wake();
+  update();
+})();
+</script>
+</body>
+</html>
