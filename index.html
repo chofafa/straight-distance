@@ -29,9 +29,15 @@
   /* 아래 */
   #sheet{position:fixed;left:0;right:0;bottom:0;z-index:1000;padding:8px max(14px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));background:var(--panel);border-top:1px solid var(--line);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:grid;gap:8px}
   #read{display:flex;align-items:center;justify-content:space-between;gap:10px}
-  #total{flex:1 1 auto;min-width:0;font:700 30px/1.1 var(--num);letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
+  #nums{flex:1 1 auto;min-width:0}
+  #total{font:700 30px/1.1 var(--num);letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
   #total small{font:600 14px var(--ui);color:var(--mute);margin-right:6px}
   #total.idle{font:600 16px/1.3 var(--ui);color:var(--mute)}
+  /* 보정거리 — 고저차가 거리를 1m 이상 바꿀 때만 나온다 */
+  #plays{margin-top:1px;font:700 19px/1.15 var(--num);color:var(--ok);font-variant-numeric:tabular-nums;white-space:nowrap}
+  #plays small{font:600 12px var(--ui);color:var(--mute);margin-right:6px}
+  #plays i{font:600 12px var(--ui);font-style:normal;color:var(--mute);margin-left:6px}
+  #plays[hidden]{display:none}
   #side{display:flex;gap:6px;flex:0 0 auto}
   button{font:600 13px var(--ui);color:var(--ink);background:rgba(243,245,240,.1);border:1px solid var(--line);border-radius:10px;padding:0 12px;min-height:38px;cursor:pointer;white-space:nowrap}
   button:focus-visible{outline:2px solid var(--gps);outline-offset:2px}
@@ -42,7 +48,9 @@
   .seg{flex:1 1 0;min-width:0;position:relative;text-align:center;font:600 13px var(--ui);color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden}
   .seg:before{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px dashed rgba(232,65,47,.9)}
   .seg span{position:relative;background:var(--panel);padding:0 3px}
-  @media (max-width:360px){.node{flex-basis:30px;width:30px;height:30px;font-size:15px;line-height:26px}.seg{font-size:12px}}
+  @media (max-width:360px){.node{flex-basis:30px;width:30px;height:30px;font-size:15px;line-height:26px}.seg{font-size:12px}
+    #total{font-size:26px}#total small{font-size:12px;margin-right:4px}#plays{font-size:17px}#plays small{margin-right:4px}
+    button{padding:0 9px}}
   /* 마커 */
   .me{width:18px;height:18px;border-radius:50%;background:var(--gps);border:3px solid #fff;box-shadow:0 0 0 2px rgba(59,139,255,.5),0 1px 4px rgba(0,0,0,.5)}
   .pinw{position:relative;width:48px;height:66px}
@@ -63,7 +71,10 @@
 <button id="bMode" aria-label="지도 종류 전환">지형</button>
 <div id="sheet">
   <div id="read">
-    <div id="total" class="idle">꾹 눌러 핀</div>
+    <div id="nums">
+      <div id="total" class="idle">꾹 눌러 핀</div>
+      <div id="plays" hidden></div>
+    </div>
     <div id="side">
       <button id="bMe">내 위치</button>
       <button id="bClear">모두 지우기</button>
@@ -81,7 +92,7 @@
   function load(k){try{var v=localStorage.getItem(k);return v?JSON.parse(v):null}catch(e){return null}}
   function save(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}
 
-  var st=document.getElementById("status"), stText=document.getElementById("stText"), totalEl=document.getElementById("total"), chainEl=document.getElementById("chain");
+  var st=document.getElementById("status"), stText=document.getElementById("stText"), totalEl=document.getElementById("total"), chainEl=document.getElementById("chain"), playsEl=document.getElementById("plays");
   var map=L.map("map",{zoomControl:false,attributionControl:true,tapHold:false,maxZoom:21,minZoom:14,zoomSnap:0.25,inertia:true});
   // 지도 두 종류: 위성 / 지형(일반지도의 건물·지명 라벨 + Esri 음영기복을 곱하기 블렌드로 얹음 — 네이버 지형도 느낌)
   map.createPane("shade"); map.getPane("shade").style.zIndex=250;
@@ -96,6 +107,115 @@
   var view=load("view"), okView=view&&Array.isArray(view.c)&&Number.isFinite(view.c[0])&&Number.isFinite(view.c[1])&&Number.isFinite(view.z);
   map.setView(okView?view.c:HOME, okView?Math.min(21,Math.max(14,view.z)):16);
   map.on("moveend",function(){ var c=map.getCenter(); save("view",{c:[c.lat,c.lng],z:map.getZoom()}); });
+
+  // ── 표고: AWS Terrain Tiles(terrarium). 키 없음, CORS 열림(Access-Control-Allow-Origin:*), 한국은 SRTM 30m ──
+  // 베어크리크 춘천 공식 공략도와 대조: 티→그린 고저차 오차 3m 이내 (18번 -32/-34, 16번 +30/+30, 17번 -0.5/+2)
+  var TZ=15, TS=256, TCACHE=6, TWAIT=12000;
+  var tmem={}, tpend={};                              // 디코드된 RGBA / 진행 중 요청(같은 타일은 한 번만 받는다)
+  function tkey(x,y){ return TZ+"/"+x+"/"+y; }
+  function skey(x,y){ return "tile."+TZ+"."+x+"."+y; }
+  function turl(x,y){ return "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/"+TZ+"/"+x+"/"+y+".png"; }
+  function storeTile(x,y,cv){
+    var url; try{ url=cv.toDataURL("image/png"); }catch(e){ return; }
+    var k=skey(x,y), list=load("tiles"); if(!Array.isArray(list)) list=[];
+    list=list.filter(function(v){return v!==k}); list.push(k);
+    while(list.length>TCACHE){ try{localStorage.removeItem(list.shift())}catch(e){} }
+    if(!save(k,url)){                                 // 쿼터 초과 — 한 장 비우고 한 번만 더
+      if(list.length>1){ try{localStorage.removeItem(list.shift())}catch(e){} }
+      if(!save(k,url)){ save("tiles",list.filter(function(v){return v!==k})); return; }
+    }
+    save("tiles",list);
+  }
+  // 실패는 null. 표고 0(해수면)과 구분해야 하므로 falsy 검사 금지
+  function loadTile(x,y){                             // -> Promise<Uint8ClampedArray(256*256*4)|null>
+    var k=tkey(x,y);
+    if(tmem[k]) return Promise.resolve(tmem[k]);
+    if(tpend[k]) return tpend[k];
+    var p=new Promise(function(res){
+      function grab(src,cached){
+        var img=new Image(), done=false;
+        if(!cached) img.crossOrigin="anonymous";      // 안 붙이면 canvas 가 오염돼 getImageData 가 던진다
+        var timer=setTimeout(function(){ if(!done){ done=true; img.src=""; res(null); } },TWAIT);
+        img.onload=function(){
+          if(done)return; done=true; clearTimeout(timer);
+          try{
+            var cv=document.createElement("canvas"); cv.width=TS; cv.height=TS;
+            var g=cv.getContext("2d",{willReadFrequently:true}); g.drawImage(img,0,0,TS,TS);
+            var d=g.getImageData(0,0,TS,TS).data;
+            tmem[k]=d; if(!cached) storeTile(x,y,cv);
+            res(d);
+          }catch(e){ res(null); }
+        };
+        img.onerror=function(){
+          if(done)return; done=true; clearTimeout(timer);
+          if(cached){ try{localStorage.removeItem(skey(x,y))}catch(e){} grab(turl(x,y),false); }  // 깨진 캐시 → 네트워크
+          else res(null);
+        };
+        img.src=src;
+      }
+      var c=load(skey(x,y));
+      if(typeof c==="string" && c.slice(0,11)==="data:image/") grab(c,true); else grab(turl(x,y),false);
+    });
+    tpend[k]=p;
+    p.then(function(v){ delete tpend[k]; if(v==null) delete tmem[k]; });   // 실패는 남기지 않는다 — 다음에 재시도
+    return p;
+  }
+  var TN=Math.pow(2,TZ);                              // z15 의 타일 개수(가로·세로)
+  function gpx(lng){ return (lng+180)/360*TN*TS; }
+  function gpy(lat){ var s=Math.sin(lat*Math.PI/180); return (0.5-Math.log((1+s)/(1-s))/(4*Math.PI))*TN*TS; }
+  function wrapX(tx){ return ((tx%TN)+TN)%TN; }       // 날짜변경선에서 이웃 타일이 -1/TN 이 되는 것을 되감는다
+  // 네 픽셀 bilinear. 픽셀 중심 기준(-0.5)이라 네 점이 옆 타일에 걸칠 수 있어 타일별로 따로 받는다
+  function elevAt(lat,lng){                           // -> Promise<number|null>
+    var fx=gpx(lng)-0.5, fy=gpy(lat)-0.5;
+    if(!isFinite(fx)||!isFinite(fy)) return Promise.resolve(null);
+    var x0=Math.floor(fx), y0=Math.floor(fy), rx=fx-x0, ry=fy-y0;
+    var need=[[x0,y0],[x0+1,y0],[x0,y0+1],[x0+1,y0+1]], want={};
+    for(var n=0;n<4;n++){
+      var ny=Math.floor(need[n][1]/TS);
+      if(ny<0||ny>=TN) return Promise.resolve(null);   // 극지방 — 그런 타일은 없다
+      want[tkey(wrapX(Math.floor(need[n][0]/TS)),ny)]=[wrapX(Math.floor(need[n][0]/TS)),ny];
+    }
+    var keys=Object.keys(want);
+    return Promise.all(keys.map(function(k){ return loadTile(want[k][0],want[k][1]); })).then(function(got){
+      var by={}; keys.forEach(function(k,i){ by[k]=got[i]; });
+      var v=[];
+      for(var i=0;i<4;i++){
+        var rawx=Math.floor(need[i][0]/TS), ty=Math.floor(need[i][1]/TS);
+        var d=by[tkey(wrapX(rawx),ty)];               // 받아올 때만 되감고, 픽셀 위치는 원래 값으로 센다
+        if(!d) return null;
+        var o=((need[i][1]-ty*TS)*TS+(need[i][0]-rawx*TS))*4;
+        v.push(d[o]*256+d[o+1]+d[o+2]/256-32768);     // terrarium 디코드
+      }
+      return (v[0]*(1-rx)+v[1]*rx)*(1-ry)+(v[2]*(1-rx)+v[3]*rx)*ry;
+    });
+  }
+  // plays-like: 수평거리 d 에 고저차 dh(+오르막)를 얹는다. 보이스캐디(APL골프) 안드로이드 앱의 공식 그대로.
+  // 괄호 안은 볼의 낙하각 — 짧은 샷일수록 가팔라 덜 먹고(80m 0.69), 길수록 얕아 더 먹는다(220m 1.25)
+  function playsLike(d,dh){
+    var s=Math.max(80,Math.min(220,d+dh));
+    return d+dh/Math.tan((65-0.12*s)*Math.PI/180);
+  }
+  var playsTok=0;
+  function updatePlays(){
+    var tok=++playsTok;                               // 토큰·숨김이 먼저 — 핀을 다 지운 뒤 옛 결과가 되살아나면 안 된다
+    playsEl.hidden=true;
+    if(pins.length<2) return;
+    var snap=pins.map(function(p){ return [p.lat,p.lng]; });
+    Promise.all(snap.map(function(p){ return elevAt(p[0],p[1]); })).then(function(ev){
+      if(tok!==playsTok) return;
+      for(var i=0;i<ev.length;i++) if(ev[i]===null||!isFinite(ev[i])) return;
+      var straight=0, plays=0;
+      for(var j=1;j<snap.length;j++){
+        var d=L.latLng(snap[j-1][0],snap[j-1][1]).distanceTo(L.latLng(snap[j][0],snap[j][1]));
+        straight+=d; plays+=playsLike(d,ev[j]-ev[j-1]);
+      }
+      if(Math.abs(plays-straight)<1) return;           // 보정해도 숫자가 안 바뀌면 줄을 만들지 않는다
+      var dh=Math.round(ev[ev.length-1]-ev[0]);        // 끝 − 시작
+      playsEl.innerHTML="<small>보정거리</small>"+Math.round(plays)+"m"+
+        (dh!==0?"<i>"+(dh>0?"↑":"↓")+Math.abs(dh)+"m</i>":"");
+      playsEl.hidden=false;
+    }).catch(function(){});
+  }
 
   // ── 핀 (최대 6개, 순서가 곧 번호) ──
   var pins=[];          // [L.LatLng, …]
@@ -124,8 +244,9 @@
       var b=document.createElement("button"); b.className="node"; b.textContent=i+1; b.setAttribute("aria-label","핀 "+(i+1)+" 지우기"); b.onclick=function(){removePin(i)}; chainEl.appendChild(b); });
     if(pins.length===0){ totalEl.className="idle"; totalEl.textContent="꾹 눌러 핀"; }
     else if(pins.length===1){ totalEl.className="idle"; totalEl.textContent="하나 더 꾹 누르면 거리"; }
-    else { totalEl.className=""; totalEl.innerHTML="<small>총</small>"+Math.round(tot)+"m"; }
+    else { totalEl.className=""; totalEl.innerHTML="<small>직선거리</small>"+Math.round(tot)+"m"; }
     save("pins",pins.map(function(p){return [p.lat,p.lng]}));
+    updatePlays();
   }
   function addPin(ll){ if(pins.length>=MAX){ toast("핀은 "+MAX+"개까지 — 하나 지우고"); return; } pins.push(ll); render(); if(navigator.vibrate)navigator.vibrate(30); }
   function removePin(i){ pins.splice(i,1); render(); }
